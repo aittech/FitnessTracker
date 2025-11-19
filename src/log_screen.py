@@ -1,8 +1,7 @@
 from tkinter import *
 import csv, os
 from datetime import date
-from src.utils import calculate_formula_calories
-
+from src.ml_model import train_calorie_models, predict_calories
 
 SPRINGBOK_GREEN = "#006341"
 SPRINGBOK_GOLD = "#FFB81C"
@@ -12,12 +11,12 @@ class LogScreen:
         self.root = root
         self.window = Toplevel(self.root)
         self.window.title("Log Workout")
-        self.window.geometry("400x400")
+        self.window.geometry("400x450")
         self.window.configure(bg=SPRINGBOK_GREEN)
 
         Label(
             self.window,
-            text="Log Workout",
+            text="🏋️‍♂️ Log Workout",
             font=("Arial", 18, "bold"),
             fg=SPRINGBOK_GOLD,
             bg=SPRINGBOK_GREEN
@@ -26,7 +25,7 @@ class LogScreen:
         # --- Date field ---
         Label(self.window, text="Date", fg=SPRINGBOK_GOLD, bg=SPRINGBOK_GREEN).pack()
         self.date_var = StringVar(value=date.today().isoformat())
-        Entry(self.window, textvariable=self.date_var, state="readonly").pack(pady=5)
+        Entry(self.window, textvariable=self.date_var).pack(pady=5)
 
         # --- Activity type ---
         Label(self.window, text="Activity", fg=SPRINGBOK_GOLD, bg=SPRINGBOK_GREEN).pack()
@@ -50,8 +49,20 @@ class LogScreen:
             command=self.save_workout
         ).pack(pady=10)
 
+        Button(
+            self.window,
+            text="View ML Accuracy",
+            bg=SPRINGBOK_GOLD,
+            fg=SPRINGBOK_GREEN,
+            font=("Arial", 12, "bold"),
+            command=self.show_accuracy
+        ).pack(pady=5)
+
         self.status_label = Label(self.window, text="", fg=SPRINGBOK_GOLD, bg=SPRINGBOK_GREEN)
         self.status_label.pack()
+
+        self.ml_label = Label(self.window, text="", fg=SPRINGBOK_GOLD, bg=SPRINGBOK_GREEN, font=("Arial", 10, "italic"))
+        self.ml_label.pack(pady=5)
 
     def load_weight(self):
         """Reads the weight from data/profile.csv"""
@@ -64,7 +75,7 @@ class LogScreen:
             return 70.0  # default if file missing
 
     def calculate_calories(self, activity, duration, weight):
-        """Simple calorie formula"""
+        """Simple calorie formula (MET-based)"""
         MET = {
             "Running": 9.8,
             "Cycling": 7.5,
@@ -80,10 +91,20 @@ class LogScreen:
             duration = float(self.duration_entry.get())
         except ValueError:
             self.status_label.config(text="Enter a valid duration.")
-            return
+            return  # ✅ must be indented under except!
 
-        calories = self.calculate_calories(activity, duration, self.weight)
+        # --- Train ML models for all activity types ---
+        from src.ml_model import train_calorie_models, predict_calories
+        models = train_calorie_models()
 
+        if models:
+            calories = predict_calories(models, duration, self.weight, activity)
+            self.ml_label.config(text="🤖 ML model active for " + activity)
+        else:
+            calories = self.calculate_calories(activity, duration, self.weight)
+            self.ml_label.config(text="Using formula-based calculation")
+
+        # --- Save the workout data ---
         file_path = "data/workouts.csv"
         file_exists = os.path.exists(file_path)
         with open(file_path, "a", newline="") as f:
@@ -92,5 +113,14 @@ class LogScreen:
                 writer.writerow(["Date", "Activity", "Duration", "Weight", "CaloriesBurned"])
             writer.writerow([self.date_var.get(), activity, duration, self.weight, round(calories, 1)])
 
+        # --- Feedback to user ---
         self.status_label.config(text=f"Workout saved! {round(calories)} kcal burned ✅")
         self.duration_entry.delete(0, END)
+
+    def show_accuracy(self):
+        from src.ml_model import get_model_accuracy
+        acc = get_model_accuracy()
+        if acc is None:
+            self.status_label.config(text="Need at least 5 workouts to calculate accuracy.")
+        else:
+            self.status_label.config(text=f"🤖 ML Model Accuracy: {acc}%")
